@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>フォークリフト積み下ろしゲーム - Logistics Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --forklift-yellow: #fbbf24;
+            --cyber-blue: #00f2ff;
+            --cyber-red: #ff0055;
+            --glass-bg: rgba(15, 23, 42, 0.9);
+            --env-bg: linear-gradient(180deg, #cfd9df 0%, #e2ebf0 100%);
+            --expert-bg: radial-gradient(circle at 50% 100%, #1e293b 0%, #020617 80%);
+            --rack-silver: #94a3b8;
+            --rack-silver-dark: #475569;
+            --rack-silver-light: #e2e8f0;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Hiragino Kaku Gothic Pro', 'Meiryo', sans-serif;
+            background-color: #020617;
+            color: #f8fafc;
+            touch-action: none;
+        }
+
+        @keyframes neon-glow {
+            0%, 100% { text-shadow: 0 0 10px rgba(0, 242, 255, 0.7), 0 0 20px rgba(0, 242, 255, 0.5); opacity: 1; }
+            50% { text-shadow: 0 0 25px rgba(0, 242, 255, 0.9), 0 0 45px rgba(0, 242, 255, 0.7); opacity: 0.9; }
+        }
+
+        .neon-text {
+            animation: neon-glow 2s infinite;
+            letter-spacing: 4px;
+        }
+
+        /* 画面シェイク */
+        @keyframes shake {
+            0% { transform: translate(0, 0); }
+            10%, 30%, 50%, 70%, 90% { transform: translate(-8px, -8px); }
+            20%, 40%, 60%, 80% { transform: translate(8px, 8px); }
+            100% { transform: translate(0, 0); }
+        }
+        .shake-anim { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+
+        /* ダンボールが潰れるアニメーション */
+        @keyframes crush-box {
+            0% { transform: scale(1, 1) translateY(0); }
+            20% { transform: scale(1.4, 0.4) translateY(60px); } /* 激しく潰れる */
+            50% { transform: scale(0.9, 1.1) translateY(40px); } /* 少し戻る */
+            80% { transform: scale(1.1, 0.8) translateY(50px); } /* 落ち着く */
+            100% { transform: scale(1.1, 0.4) translateY(60px); opacity: 0.8; } /* 潰れたまま */
+        }
+        .crushed {
+            animation: crush-box 0.6s ease-out forwards !important;
+            filter: grayscale(0.5) brightness(0.7);
+            border-color: #333 !important;
+        }
+
+        /* 成功時の放射光 */
+        @keyframes god-rays {
+            0% { transform: scale(0) rotate(0deg); opacity: 0; }
+            50% { opacity: 1; }
+            100% { transform: scale(3) rotate(180deg); opacity: 0; }
+        }
+        .success-rays {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 300px; height: 300px;
+            background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(255,215,0,0.5) 30%, transparent 70%);
+            margin-left: -150px; margin-top: -150px;
+            z-index: -1;
+            pointer-events: none;
+            animation: god-rays 1.5s ease-out forwards;
+        }
+
+        #game-wrapper {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100vh;
+        }
+
+        #game-viewport {
+            position: relative;
+            width: 100%;
+            height: 60vh;
+            background: var(--env-bg);
+            perspective: 1200px;
+            overflow: hidden;
+            border-bottom: 8px solid #334155;
+            transition: background 1s ease;
+        }
+
+        #game-viewport.expert-mode { background: var(--expert-bg); }
+
+        .ground-perspective {
+            position: absolute;
+            bottom: 0;
+            width: 200%;
+            left: -50%;
+            height: 40%;
+            background: 
+                linear-gradient(0deg, rgba(255,255,255,0.4) 0%, transparent 100%),
+                repeating-linear-gradient(90deg, transparent 0, transparent 10%, rgba(0,0,0,0.03) 10.1%, transparent 10.2%);
+            transform: rotateX(60deg);
+            transform-origin: bottom;
+            z-index: 2;
+        }
+
+        /* Rack Structure */
+        #rack-container {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%) translateZ(-150px);
+            width: 600px;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .rack-pillar {
+            position: absolute;
+            bottom: 0;
+            width: 20px;
+            height: 100%;
+            background: linear-gradient(90deg, #334155, #94a3b8, #334155);
+            border: 2px solid #1e293b;
+            box-shadow: inset -2px 0 5px rgba(0,0,0,0.2);
+        }
+        .rack-pillar-left { left: 0; }
+        .rack-pillar-right { right: 0; }
+
+        #shelf {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 35px;
+            background: linear-gradient(180deg, var(--rack-silver-light) 0%, var(--rack-silver) 50%, var(--rack-silver-dark) 100%);
+            border: 2px solid #64748b;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4), inset 0 2px 5px rgba(255,255,255,0.5);
+            transition: bottom 0.3s ease-out;
+        }
+
+        #target-marker {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: var(--cyber-red);
+            z-index: 15;
+            opacity: 0.8;
+            transition: all 0.2s;
+        }
+
+        #target-marker.aligned {
+            background: var(--cyber-blue);
+            box-shadow: 0 0 20px var(--cyber-blue), 0 0 40px var(--cyber-blue);
+            opacity: 1 !important;
+        }
+
+        /* Cockpit */
+        .cockpit-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+        }
+
+        .pillar {
+            position: absolute;
+            bottom: -10%;
+            width: 50px;
+            height: 120%;
+            background: linear-gradient(90deg, #0f172a, #334155 50%, #0f172a);
+            border: 2px solid #000;
+        }
+        .pillar-left { left: 8%; transform: rotateZ(1deg); }
+        .pillar-right { right: 8%; transform: rotateZ(-1deg); }
+
+        .hud-panel {
+            position: absolute;
+            background: var(--glass-bg);
+            padding: 20px 14px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            width: 140px;
+            height: 260px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.7);
+            backdrop-filter: blur(12px);
+            z-index: 110;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .hud-panel-left {
+            bottom: 20%;
+            left: calc(8% + 30px);
+            border-left: 6px solid var(--cyber-blue);
+            transform: rotateY(-20deg);
+            clip-path: polygon(0% 0%, 100% 5%, 100% 95%, 0% 100%);
+        }
+
+        .hud-panel-right {
+            bottom: 20%;
+            right: calc(8% + 30px);
+            border-right: 6px solid var(--cyber-red);
+            transform: rotateY(20deg);
+            clip-path: polygon(0% 5%, 100% 0%, 100% 100%, 0% 95%);
+        }
+
+        .hud-label {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 4px;
+        }
+
+        .digital-number {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 2.2rem;
+            color: var(--cyber-blue);
+            line-height: 1.1;
+            font-weight: bold;
+            text-shadow: 0 0 15px rgba(0, 242, 255, 0.6);
+        }
+
+        .digital-small {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 1.6rem;
+            color: #cbd5e1;
+        }
+
+        /* Mast Assembly */
+        #mast-assembly {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%) translateZ(-50px);
+            width: 400px;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            z-index: 30;
+            transition: transform 1.2s cubic-bezier(0.45, 0.05, 0.55, 0.95), opacity 0.5s ease;
+            transform-origin: bottom;
+        }
+
+        .mast-vertical {
+            width: 55px; 
+            height: 100%;
+            background: linear-gradient(90deg, #020617, #334155, #020617);
+            border-left: 2px solid #475569;
+            border-right: 2px solid #0f172a;
+            margin: 0 45px;
+        }
+
+        #fork-carriage {
+            position: absolute;
+            bottom: 0;
+            width: 320px;
+            height: 45px;
+            background: #0f172a;
+            border: 3px solid #000;
+            transition: bottom 0.1s linear;
+        }
+
+        .fork-spike {
+            position: absolute;
+            top: 100%;
+            width: 18px;
+            height: 130px;
+            background: linear-gradient(90deg, #334155, #64748b, #334155);
+            border: 2px solid #000;
+            transform: rotateX(90deg);
+            transform-origin: top;
+        }
+        .fork-left { left: 55px; }
+        .fork-right { right: 55px; }
+
+        #cargo {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 180px;
+            height: 160px;
+            background: linear-gradient(135deg, #e3c19b 0%, #a0522d 100%);
+            border: 5px solid #5d2e0a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+            z-index: 35;
+            transform-origin: bottom center;
+        }
+
+        /* Bottom Controls */
+        #ui-container {
+            height: 40vh;
+            background: #020617;
+            display: flex;
+            justify-content: space-evenly;
+            align-items: center;
+            padding: 0 20px;
+            border-top: 4px solid #1e293b;
+            position: relative;
+            overflow: visible; 
+        }
+
+        .controls-panel {
+            display: flex;
+            gap: 20px;
+            background: #1e293b;
+            padding: 15px 25px;
+            border-radius: 20px;
+            box-shadow: inset 0 2px 10px rgba(255,255,255,0.05);
+            z-index: 10;
+        }
+
+        .lever-track {
+            width: 50px;
+            height: 140px;
+            background: #020617;
+            border-radius: 25px;
+            position: relative;
+            cursor: ns-resize;
+            box-shadow: inset 0 4px 10px rgba(0,0,0,0.8);
+            margin-top: 10px;
+        }
+
+        .lever-knob {
+            width: 44px;
+            height: 44px;
+            background: radial-gradient(circle at 30% 30%, #94a3b8, #334155);
+            border-radius: 50%;
+            position: absolute;
+            left: 3px;
+            top: 50%;
+            transform: translateY(-50%);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+
+        .btn-action {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(180deg, #f43f5e, #9f1239);
+            border: 4px solid #4c0519;
+            border-radius: 50%;
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 12px;
+            font-weight: 900;
+            box-shadow: 0 6px 0 #4c0519;
+            transition: all 0.1s;
+            cursor: pointer;
+            margin-top: 30px;
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-action:active { transform: translateY(4px); box-shadow: 0 2px 0 #4c0519; }
+        .btn-action.blue { background: linear-gradient(180deg, #06b6d4, #0e7490); border-color: #083344; box-shadow: 0 6px 0 #083344; }
+
+        /* 波紋エフェクト */
+        .btn-action::after {
+            content: "";
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 5px; height: 5px;
+            background: rgba(255, 255, 255, 0.5);
+            opacity: 0;
+            border-radius: 100%;
+            transform: scale(1, 1) translate(-50%, -50%);
+            transform-origin: 50% 50%;
+        }
+        .btn-action:active::after {
+            animation: ripple 0.4s ease-out;
+        }
+        @keyframes ripple {
+            0% { transform: scale(0, 0) translate(-50%, -50%); opacity: 0.5; }
+            100% { transform: scale(40, 40) translate(-50%, -50%); opacity: 0; }
+        }
+
+        /* Steering Wheel Styling */
+        .steering-panel {
+            position: relative;
+            width: 400px;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+        }
+
+        .steering-wheel-outer {
+            width: 420px;
+            height: 420px;
+            position: absolute;
+            bottom: -150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transform: rotateX(40deg);
+            z-index: 50;
+            filter: drop-shadow(0 20px 40px rgba(0,0,0,0.8));
+        }
+
+        #steering-inner {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.1s linear;
+        }
+
+        .wheel-rim {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 45px solid transparent;
+            background: 
+                linear-gradient(#111, #111) padding-box,
+                linear-gradient(135deg, #444 0%, #000 45%, #555 50%, #000 55%, #222 100%) border-box;
+            box-shadow: 
+                inset 0 0 15px rgba(255,255,255,0.2), 
+                inset 0 10px 20px rgba(0,0,0,0.8),
+                0 5px 15px rgba(0,0,0,0.5);
+        }
+
+        .steering-knob {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 65px;
+            height: 65px;
+            background: radial-gradient(circle at 35% 35%, #475569, #0f172a);
+            border: 4px solid #000;
+            border-radius: 50%;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.6), inset 0 2px 5px rgba(255,255,255,0.3);
+            z-index: 100;
+        }
+
+        .wheel-spoke-system {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .wheel-spoke {
+            position: absolute;
+            background: linear-gradient(180deg, #2d3748, #0f172a);
+            border: 2px solid #000;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+        }
+        .spoke-1 { width: 82%; height: 55px; border-radius: 8px; }
+        .spoke-2 { width: 55px; height: 50%; top: 50%; border-radius: 8px; }
+
+        .wheel-center-cap {
+            width: 140px; 
+            height: 140px; 
+            background: radial-gradient(circle at 35% 35%, #475569, #020617);
+            border-radius: 50%;
+            border: 10px solid #000;
+            z-index: 60;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.8), inset 0 2px 10px rgba(255,255,255,0.1);
+            text-align: center;
+        }
+
+        .brand-text {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 13px;
+            font-weight: 900;
+            color: #e2e8f0;
+            letter-spacing: 1.5px;
+            line-height: 1.2;
+            text-shadow: 0 3px 6px rgba(0,0,0,0.8);
+        }
+
+        .hidden { display: none !important; }
+
+        .result-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(2, 6, 23, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .rank-badge {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 6rem;
+            font-weight: 900;
+            line-height: 1;
+            margin: 10px 0;
+            text-shadow: 0 0 30px currentColor;
+        }
+
+        .comment-box {
+            background: rgba(255,255,255,0.05);
+            border-left: 4px solid var(--cyber-blue);
+            padding: 15px 25px;
+            margin: 20px 0;
+            max-width: 500px;
+            font-style: italic;
+            color: #cbd5e1;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-wrapper">
+        <!-- Start Menu -->
+        <div id="start-menu" class="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-[4000]">
+            <h1 class="text-6xl font-black text-cyan-400 mb-6 italic neon-text" style="font-family: 'Orbitron', sans-serif;">FORKLIFT PRO</h1>
+            <div class="flex flex-col gap-4 w-72 text-center">
+                <button onclick="showTutorial('beginner')" class="btn-click-effect px-6 py-4 bg-cyan-600 text-white rounded-xl text-lg font-bold hover:bg-cyan-500 shadow-lg shadow-cyan-900/20">BEGINNER</button>
+                <button onclick="showTutorial('expert')" class="btn-click-effect px-6 py-4 bg-slate-900 text-slate-400 rounded-xl text-lg font-bold hover:bg-rose-900 hover:text-white border border-slate-800 transition-all">EXPERT (NIGHT)</button>
+            </div>
+        </div>
+
+        <!-- Tutorial Screen -->
+        <div id="tutorial-screen" class="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-[3000] hidden px-6 text-center">
+            <div class="max-w-md w-full bg-slate-900/50 p-8 rounded-3xl border border-white/10 backdrop-blur-xl">
+                <h2 class="text-3xl font-black mb-6 text-cyan-400" style="font-family: 'Orbitron', sans-serif;">チュートリアル</h2>
+                <div class="space-y-4 text-slate-300 text-left mb-8">
+                    <p class="flex items-start gap-3"><span class="text-cyan-400 font-bold">1.</span> LIFTレバーでフォークの高さを調整してください。</p>
+                    <p class="flex items-start gap-3">
+                        <span class="text-cyan-400 font-bold">2.</span>
+                        <span>ラインが<span class="text-cyan-400 font-bold">青く光った時</span>がチャンスです。</span>
+                    </p>
+                    <p class="flex items-start gap-3"><span class="text-cyan-400 font-bold">3.</span> RELEASEで荷物を置き、RETRACTでフォークを引き抜きます。</p>
+                </div>
+                <button onclick="startGame()" class="btn-click-effect w-full py-5 bg-cyan-600 text-white font-black text-xl rounded-xl hover:bg-cyan-500 shadow-lg shadow-cyan-900/40 transform transition hover:scale-105 active:scale-95">START MISSION</button>
+            </div>
+        </div>
+
+        <div id="game-viewport">
+            <div id="flash-overlay" class="absolute inset-0 pointer-events-none z-[500] transition-opacity duration-300 opacity-0 bg-white"></div>
+            <div class="ground-perspective"></div>
+            
+            <div class="cockpit-overlay">
+                <div class="pillar pillar-left"></div>
+                <div class="pillar pillar-right"></div>
+
+                <div class="hud-panel hud-panel-left">
+                    <div class="hud-section">
+                        <div class="hud-label">Altitude</div>
+                        <div id="current-val-left" class="digital-number">0.00</div>
+                    </div>
+                    <div class="hud-section">
+                        <div class="hud-label">Target</div>
+                        <div id="target-val-left" class="digital-small">1.20</div>
+                    </div>
+                </div>
+
+                <div class="hud-panel hud-panel-right">
+                    <div class="hud-section text-right">
+                        <div class="hud-label">Stage</div>
+                        <div id="stage-display" class="digital-number">1/3</div>
+                    </div>
+                    <div class="hud-section text-right">
+                        <div class="hud-label">Time</div>
+                        <div id="timer" class="digital-small text-rose-500">60.0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="scene-container" style="transform-style: preserve-3d; height: 100%; position: relative;">
+                <div id="rack-container">
+                    <div class="rack-pillar rack-pillar-left"></div>
+                    <div class="rack-pillar rack-pillar-right"></div>
+                    <div id="target-marker"></div>
+                    <div id="shelf"></div>
+                </div>
+                
+                <div id="mast-assembly">
+                    <div class="mast-vertical"></div>
+                    <div class="mast-vertical"></div>
+                    <div id="fork-carriage">
+                        <div class="fork-spike fork-left"></div>
+                        <div class="fork-spike fork-right"></div>
+                        <div id="cargo">
+                            <span class="text-5xl">📦</span>
+                            <div id="success-rays" class="success-rays hidden"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="ui-container">
+            <div class="controls-panel">
+                <div class="flex flex-col items-center">
+                    <div class="hud-label">LIFT CONTROL</div>
+                    <div class="lever-track" id="lever-track">
+                        <div id="lever-knob" class="lever-knob"></div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col items-center">
+                    <div class="hud-label">ACTION</div>
+                    <button id="main-action-btn" class="btn-action btn-click-effect">RELEASE</button>
+                </div>
+            </div>
+
+            <div class="steering-panel">
+                <div class="steering-wheel-outer">
+                    <div id="steering-inner">
+                        <div class="wheel-rim"></div>
+                        <div class="steering-knob"></div>
+                        <div class="wheel-spoke-system">
+                            <div class="wheel-spoke spoke-1"></div>
+                            <div class="wheel-spoke spoke-2"></div>
+                        </div>
+                        <div class="wheel-center-cap">
+                            <div class="brand-text">TOYOTA</div>
+                            <div class="brand-text">L&F</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Result Overlay -->
+    <div id="result-screen" class="result-overlay hidden">
+        <h2 id="result-msg" class="text-5xl font-black mb-4 italic text-cyan-400" style="font-family: 'Orbitron', sans-serif;">MISSION COMPLETE</h2>
+        
+        <div id="rank-display" class="rank-badge">S</div>
+        <p id="result-detail" class="text-lg text-slate-200 mb-2 font-bold tracking-widest">誤差: 0.00M</p>
+        
+        <div id="result-comment" class="comment-box">
+            <!-- JSで動的に挿入 -->
+        </div>
+
+        <div class="flex gap-4 mt-6">
+            <button id="next-stage-btn" onclick="nextStage()" class="btn-click-effect hidden px-8 py-3 bg-cyan-600 text-white font-bold rounded-lg hover:bg-cyan-500">NEXT STAGE</button>
+            <button onclick="location.reload()" class="btn-click-effect px-8 py-3 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-700">RESTART</button>
+        </div>
+    </div>
+
+    <script>
+        const SCALE = 200; 
+        const MAX_STAGES = 3;
+        let currentHeight = 0;
+        let targetHeight = 1.0;
+        let isGameActive = false;
+        let phase = 'lifting'; 
+        let timeLeft = 60.0;
+        let velocity = 0;
+        let inputIntensity = 0;
+        let difficulty = 'beginner';
+        let currentStage = 1;
+        let timerInterval = null;
+        let isCurrentlyAligned = false; 
+
+        const carriageEl = document.getElementById('fork-carriage');
+        const mastAssemblyEl = document.getElementById('mast-assembly');
+        const cargoEl = document.getElementById('cargo');
+        const shelfEl = document.getElementById('shelf');
+        const markerEl = document.getElementById('target-marker');
+        const knob = document.getElementById('lever-knob');
+        const steeringInner = document.getElementById('steering-inner');
+        const timerEl = document.getElementById('timer');
+        const stageDisplay = document.getElementById('stage-display');
+        const currentValLeft = document.getElementById('current-val-left');
+        const targetValLeft = document.getElementById('target-val-left');
+        const actionBtn = document.getElementById('main-action-btn');
+        const viewport = document.getElementById('game-viewport');
+        const sceneContainer = document.getElementById('scene-container');
+        const rackContainer = document.getElementById('rack-container');
+        const flashOverlay = document.getElementById('flash-overlay');
+        const resultInfo = document.getElementById('result-comment');
+
+        const DIFFICULTY_SETTINGS = {
+            beginner: { tolerance: 0.12 },
+            expert: { tolerance: 0.06 }
+        };
+
+        const EVALUATION_DATA = [
+            { threshold: 0.02, rank: 'S', color: '#facc15', comment: "「お前…天才か？フォークの爪先まで神経が通ってるみたいだわ。明日から指導員やってくれ！」" },
+            { threshold: 0.05, rank: 'A', color: '#22d3ee', comment: "「いい腕だ。荷物への衝撃も最小限、基本に忠実で安心して見てられるな。その調子だ。」" },
+            { threshold: 0.09, rank: 'B', color: '#a3e635', comment: "「んー、悪くはないけど、プロならもうちょいビシッと決めたいとこだわな。精進しろよ！」" },
+            { threshold: 999.0, rank: 'C', color: '#94a3b8', comment: "「とりあえず完了だな。荷崩れはしていないが、もう少し慎重に操作してくれ。」" }
+        ];
+
+        function showTutorial(mode) {
+            difficulty = mode;
+            document.getElementById('start-menu').classList.add('hidden');
+            document.getElementById('tutorial-screen').classList.remove('hidden');
+        }
+
+        function startGame() {
+            document.getElementById('tutorial-screen').classList.add('hidden');
+            viewport.classList.remove('shake-anim');
+            if (difficulty === 'expert') {
+                viewport.classList.add('expert-mode');
+                markerEl.style.opacity = '0';
+            } else {
+                markerEl.style.opacity = '0.8';
+            }
+            initStage();
+            setupLever();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function initStage() {
+            phase = 'lifting';
+            currentHeight = 0;
+            velocity = 0;
+            timeLeft = 60.0;
+            isCurrentlyAligned = false;
+            targetHeight = parseFloat((Math.random() * 0.8 + 0.4).toFixed(2));
+            
+            targetValLeft.innerText = targetHeight.toFixed(2);
+            shelfEl.style.bottom = (targetHeight * SCALE - 35) + 'px';
+            markerEl.style.bottom = (targetHeight * SCALE) + 'px';
+            markerEl.classList.remove('aligned');
+
+            carriageEl.appendChild(cargoEl);
+            carriageEl.style.bottom = '0px';
+            cargoEl.style.bottom = '40px';
+            cargoEl.style.transform = 'translateX(-50%)';
+            cargoEl.style.opacity = '1';
+            cargoEl.style.transition = 'none';
+            cargoEl.classList.remove('crushed'); // リセット
+            document.getElementById('success-rays').classList.add('hidden'); // リセット
+
+            mastAssemblyEl.style.transform = 'translateX(-50%) translateZ(-50px)';
+            mastAssemblyEl.style.opacity = '1';
+            mastAssemblyEl.style.transition = 'transform 1.2s cubic-bezier(0.45, 0.05, 0.55, 0.95), opacity 0.5s ease';
+            
+            actionBtn.innerText = "RELEASE";
+            actionBtn.onclick = releaseCargo;
+            actionBtn.classList.remove('blue');
+            stageDisplay.innerText = `${currentStage}/${MAX_STAGES}`;
+            
+            document.getElementById('result-screen').classList.add('hidden');
+            document.getElementById('next-stage-btn').classList.add('hidden');
+            isGameActive = true;
+            startTimer();
+        }
+
+        function setupLever() {
+            const track = document.getElementById('lever-track');
+            const updateInput = (y) => {
+                const rect = track.getBoundingClientRect();
+                const centerY = rect.top + rect.height / 2;
+                inputIntensity = -Math.max(-1, Math.min(1, (y - centerY) / (rect.height / 2)));
+                if (Math.abs(inputIntensity) < 0.1) inputIntensity = 0;
+                knob.style.top = (50 - inputIntensity * 40) + '%';
+            };
+            track.onmousemove = (e) => updateInput(e.clientY);
+            track.onmouseleave = () => { inputIntensity = 0; knob.style.top = '50%'; };
+            track.ontouchmove = (e) => { e.preventDefault(); updateInput(e.touches[0].clientY); };
+            track.ontouchend = () => { inputIntensity = 0; knob.style.top = '50%'; };
+        }
+
+        function gameLoop() {
+            if (isGameActive && phase === 'lifting') {
+                velocity += inputIntensity * 0.004;
+                velocity *= 0.82; 
+                currentHeight += velocity;
+                
+                if (currentHeight > 1.8) currentHeight = 1.8;
+                if (currentHeight < 0) currentHeight = 0;
+                
+                carriageEl.style.bottom = (currentHeight * SCALE) + 'px';
+                steeringInner.style.transform = `rotate(${velocity * 1200}deg)`;
+                
+                currentValLeft.innerText = currentHeight.toFixed(2);
+                
+                const absDiff = Math.abs(currentHeight - targetHeight);
+                const settings = DIFFICULTY_SETTINGS[difficulty];
+
+                if (absDiff <= settings.tolerance && currentHeight >= targetHeight - 0.02) {
+                    isCurrentlyAligned = true;
+                    markerEl.classList.add('aligned');
+                    if (difficulty === 'expert') markerEl.style.opacity = '1';
+                } else {
+                    isCurrentlyAligned = false;
+                    markerEl.classList.remove('aligned');
+                    if (difficulty === 'expert') {
+                        markerEl.style.opacity = '0';
+                    } else {
+                        markerEl.style.opacity = '0.8';
+                    }
+                }
+            }
+            requestAnimationFrame(gameLoop);
+        }
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (!isGameActive) return;
+                timeLeft -= 0.1;
+                timerEl.innerText = Math.max(0, timeLeft).toFixed(1);
+                if (timeLeft <= 0) finish('TIMEOUT', '時間切れだ！迅速に動け！', false);
+            }, 100);
+        }
+
+        function triggerFlash() {
+            flashOverlay.style.opacity = "0.6";
+            setTimeout(() => flashOverlay.style.opacity = "0", 200);
+        }
+
+        function triggerConfetti() {
+            const count = 200;
+            const defaults = { origin: { y: 0.7 }, zIndex: 5000 };
+            function fire(particleRatio, opts) {
+                confetti({
+                    ...defaults,
+                    ...opts,
+                    particleCount: Math.floor(count * particleRatio)
+                });
+            }
+            fire(0.25, { spread: 26, startVelocity: 55 });
+            fire(0.2, { spread: 60 });
+            fire(0.35, { spread: 100, decay: 0.91, scalar: 0.8 });
+            fire(0.1, { spread: 120, startVelocity: 25, decay: 0.92, scalar: 1.2 });
+            fire(0.1, { spread: 120, startVelocity: 45 });
+        }
+
+        function releaseCargo() {
+            if (phase !== 'lifting') return;
+            
+            if (currentHeight < targetHeight - 0.05) {
+                viewport.classList.add('shake-anim');
+                finish('COLLISION', 'ガシャンって…おい！棚を壊す気か！バックオーライからやり直しだ！', false);
+                return;
+            }
+            
+            phase = 'releasing';
+            // ゆっくり置くアニメーション (1.5秒)
+            cargoEl.style.transition = 'bottom 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            cargoEl.style.bottom = '30px'; 
+            
+            setTimeout(() => {
+                actionBtn.innerText = "RETRACT";
+                actionBtn.classList.add('blue');
+                actionBtn.onclick = retractFork;
+            }, 1500);
+        }
+
+        function retractFork() {
+            if (phase !== 'releasing') return;
+            phase = 'retracting';
+            
+            const finalY = targetHeight * SCALE;
+            rackContainer.appendChild(cargoEl);
+            cargoEl.style.bottom = (finalY + 5) + 'px'; 
+            cargoEl.style.transform = 'translateX(-50%) translateZ(0)';
+            
+            mastAssemblyEl.style.transition = 'transform 1.5s cubic-bezier(0.445, 0.05, 0.55, 0.95), opacity 0.8s ease';
+            mastAssemblyEl.style.transform = 'translateX(-50%) translateZ(600px) scale(1.6)';
+            mastAssemblyEl.style.opacity = '0';
+            
+            setTimeout(checkFinalResult, 1500);
+        }
+
+        function checkFinalResult() {
+            const diff = Math.abs(currentHeight - targetHeight);
+            
+            if (isCurrentlyAligned) {
+                // 成功演出
+                document.getElementById('success-rays').classList.remove('hidden');
+                triggerFlash();
+                triggerConfetti();
+
+                // 評価の取得
+                const eval = EVALUATION_DATA.find(e => diff <= e.threshold);
+                const title = currentStage < MAX_STAGES ? `STAGE ${currentStage} CLEAR` : 'MISSION COMPLETE';
+                
+                finish(title, `誤差: ${diff.toFixed(3)}m`, true, currentStage < MAX_STAGES, eval);
+            } else {
+                // 失敗演出：ダンボール圧壊（高すぎた場合）
+                // 通常の落下ではなく、棚の上で潰れるような挙動
+                cargoEl.style.transition = 'transform 0.1s ease'; // 即座に反応
+                cargoEl.classList.add('crushed'); // 潰れるアニメーションクラス付与
+                
+                setTimeout(() => {
+                   viewport.classList.add('shake-anim'); // 画面揺れ
+                   finish('CARGO DESTROYED', `高すぎるぞ！落として商品が台無しだ…始末書もんだなこれは。(誤差: ${diff.toFixed(2)}m)`, false);
+                }, 300);
+            }
+        }
+
+        function nextStage() {
+            currentStage++;
+            viewport.classList.remove('shake-anim');
+            initStage();
+        }
+
+        function finish(msg, detail, success, hasNext = false, eval = null) {
+            isGameActive = false;
+            clearInterval(timerInterval);
+            const screen = document.getElementById('result-screen');
+            const msgEl = document.getElementById('result-msg');
+            const rankEl = document.getElementById('rank-display');
+            const commentEl = document.getElementById('result-comment');
+            
+            msgEl.innerText = msg;
+            msgEl.style.color = success ? 'var(--cyber-blue)' : 'var(--cyber-red)';
+            document.getElementById('result-detail').innerText = detail.startsWith('誤差') ? detail : ''; // エラーメッセージの場合はdetailへ直接
+            
+            if (success && eval) {
+                rankEl.classList.remove('hidden');
+                rankEl.innerText = eval.rank;
+                rankEl.className = `rank-badge ${success ? 'rank-' + eval.rank.toLowerCase() : ''}`;
+                commentEl.classList.remove('hidden');
+                commentEl.innerText = eval.comment;
+                commentEl.style.borderColor = eval.color;
+            } else {
+                rankEl.classList.add('hidden');
+                commentEl.classList.remove('hidden');
+                commentEl.innerText = detail; // 失敗時はdetailをコメントとして表示
+                commentEl.style.borderColor = 'var(--cyber-red)';
+            }
+            
+            if (success && hasNext) {
+                document.getElementById('next-stage-btn').classList.remove('hidden');
+            } else {
+                document.getElementById('next-stage-btn').classList.add('hidden');
+            }
+            screen.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
