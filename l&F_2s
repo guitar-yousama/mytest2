@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Toyota L&F Logistics Adventure</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap');
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #f3f4f6;
+            touch-action: none; /* ドラッグ操作中のスクロールを防止 */
+        }
+        .toyota-red { background-color: #eb0a1e; }
+        
+        @keyframes shake {
+            0% { transform: translate(0, 0) rotate(0deg); }
+            25% { transform: translate(1px, 1px) rotate(0.5deg); }
+            50% { transform: translate(-1px, -1px) rotate(-0.5deg); }
+            75% { transform: translate(1px, -1px) rotate(0.5deg); }
+            100% { transform: translate(0, 0) rotate(0deg); }
+        }
+        .shaking { animation: shake 0.4s infinite; }
+
+        /* ドロップ先（棚）のスタイル */
+        .drop-zone-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            background: #e5e7eb;
+            padding: 12px;
+            border-radius: 12px;
+            min-height: 120px;
+        }
+        .drop-slot {
+            aspect-ratio: 1/1;
+            border: 2px dashed #9ca3af;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #9ca3af;
+            background: rgba(255, 255, 255, 0.5);
+        }
+        .drop-slot.filled {
+            border-style: solid;
+            border-color: #eb0a1e;
+            background: white;
+            color: #eb0a1e;
+        }
+
+        /* ドラッグするパネルのスタイル */
+        .source-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            min-height: 150px;
+            padding: 10px;
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #ddd;
+        }
+        .draggable-panel {
+            width: 50px;
+            height: 50px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            cursor: grab;
+            user-select: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            touch-action: none;
+            z-index: 10;
+        }
+        .draggable-panel:active { cursor: grabbing; }
+        .draggable-panel.dragging { opacity: 0.5; transform: scale(1.1); }
+        .draggable-panel.correct-placed { visibility: hidden; pointer-events: none; }
+
+        .progress-bar { transition: width 0.3s ease; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col overflow-x-hidden">
+
+    <header class="toyota-red text-white p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold italic">TOYOTA L&F</h1>
+            <span class="text-xs md:text-sm">Logistics & Forklift Internship Experience</span>
+        </div>
+    </header>
+
+    <main class="flex-grow container mx-auto px-4 py-6 max-w-2xl">
+        <div id="app-container" class="bg-white rounded-2xl shadow-xl p-6 md:p-8 min-h-[550px] flex flex-col justify-center">
+            
+            <!-- 1. Start Screen -->
+            <div id="view-start">
+                <div class="text-center">
+                    <div class="mb-6 flex justify-center">
+                        <div class="p-4 bg-red-50 rounded-full">
+                             <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-7h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                            </svg>
+                        </div>
+                    </div>
+                    <h2 class="text-2xl font-bold mb-4">物流の「あたりまえ」を変える。</h2>
+                    <p class="text-gray-600 mb-8">
+                        トヨタL&Fの仕事は、単なるフォークリフトの販売ではありません。現場の「困りごと」を解決する、物流のコンサルティングです。
+                    </p>
+                    <button onclick="showStory()" class="w-full toyota-red text-white font-bold py-4 rounded-full text-lg shadow-md hover:opacity-90 transition">
+                        体験をスタートする
+                    </button>
+                </div>
+            </div>
+
+            <!-- 2. Story -->
+            <div id="view-story" class="hidden">
+                <h3 class="text-xl font-bold mb-4 border-l-4 border-red-600 pl-3 text-red-600">MISSION: 現場のムダを見抜け！</h3>
+                <p class="mb-4 leading-relaxed">
+                    現場に行くと荷物が散乱し、スタッフが「目的の数字がどこにあるか分からない！」と困っています。<br><br>
+                    トヨタ流の<b>4S（整理・整頓・清掃・清潔）</b>を使って、効率的な現場を作りましょう。
+                </p>
+                <div class="bg-gray-100 p-4 rounded-lg mb-6 italic text-sm text-gray-700">
+                    「まずはクイズで知識を確認しよう！」
+                </div>
+                <button onclick="startQuiz()" class="w-full bg-black text-white font-bold py-3 rounded-xl hover:bg-gray-800 transition">
+                    クイズに挑戦
+                </button>
+            </div>
+
+            <!-- 3. Quiz Mode -->
+            <div id="view-quiz" class="hidden">
+                <div class="mb-4 flex justify-between items-center text-sm font-bold">
+                    <span id="quiz-number" class="text-red-600">Question 1/3</span>
+                    <span id="quiz-score">Score: 0</span>
+                </div>
+                <div class="w-full bg-gray-200 h-2 rounded-full mb-6">
+                    <div id="quiz-progress" class="progress-bar toyota-red h-2 rounded-full" style="width: 33%"></div>
+                </div>
+                <h3 id="quiz-question" class="text-lg font-bold mb-6 min-h-[3rem]"></h3>
+                <div id="quiz-options" class="space-y-3"></div>
+                <div id="quiz-explanation" class="hidden mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                    <p id="explanation-text" class="text-sm mb-4"></p>
+                    <button onclick="nextStep()" class="w-full toyota-red text-white py-2 rounded-lg font-bold">
+                        次へ進む
+                    </button>
+                </div>
+            </div>
+
+            <!-- 4. Mini-Game (Drag & Drop) -->
+            <div id="view-game" class="hidden">
+                <h3 id="game-title" class="text-xl font-bold mb-1">STEP 1: 整理前の現場</h3>
+                <p id="game-instruction" class="text-xs text-gray-500 mb-4"></p>
+                
+                <!-- ドロップエリア (棚) -->
+                <div class="mb-2 text-xs font-bold text-gray-500">整頓された棚（1から順に置いて！）</div>
+                <div id="drop-zone" class="drop-zone-grid mb-6">
+                    <!-- Drop slots will be generated here -->
+                </div>
+
+                <!-- ドラッグ元 (現場) -->
+                <div class="mb-2 text-xs font-bold text-gray-500">バラバラの現場（ここからドラッグ）</div>
+                <div id="source-area" class="source-area mb-6">
+                    <!-- Draggable panels will be generated here -->
+                </div>
+
+                <div class="flex justify-between items-center bg-gray-100 p-3 rounded-lg">
+                    <div class="font-bold">経過時間: <span id="game-timer" class="text-red-600">0.0</span>秒</div>
+                    <div class="text-sm">次の数字: <span id="next-number" class="text-xl font-bold">1</span></div>
+                </div>
+            </div>
+
+            <!-- 5. Result Screen -->
+            <div id="view-result" class="hidden text-center">
+                <h2 class="text-3xl font-bold mb-4">COMPLETE!</h2>
+                <div class="mb-6 p-6 bg-red-50 rounded-2xl">
+                    <p class="text-sm text-gray-600 mb-1">あなたの物流センスは...</p>
+                    <p id="result-rank" class="text-3xl font-black text-red-600 mb-4"></p>
+                    <p id="result-summary" class="text-sm text-gray-700"></p>
+                </div>
+                <div class="space-y-4">
+                    <button onclick="location.reload()" class="w-full bg-gray-200 py-3 rounded-xl font-bold">もう一度プレイ</button>
+                    <a href="#" class="w-full toyota-red text-white py-4 rounded-xl font-bold inline-block shadow-lg">
+                        採用情報をチェックする
+                    </a>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        let state = {
+            quizIndex: 0,
+            score: 0,
+            gameStartTime: 0,
+            gameTimerInterval: null,
+            targetNumber: 1,
+            gameTime1: 0,
+            gameTime2: 0,
+            isSecondGame: false,
+            draggingElement: null,
+            offsetX: 0,
+            offsetY: 0
+        };
+
+        const quizzes = [
+            {
+                question: "トヨタL&Fが大切にしている「4S」。整理、整頓、清掃と、あと一つは何？",
+                options: ["洗浄", "清潔", "親切", "精査"],
+                correct: 1,
+                explanation: "正解は「清潔」です！トヨタでは整理・整頓・清掃が行き届いた状態を維持することを「清潔」と呼びます。"
+            },
+            {
+                question: "「整理」の定義として、トヨタL&F流で最も正しいものはどれ？",
+                options: ["きれいに並べること", "掃除をすること", "要るものと要らないものを分け、要らないものを捨てること", "とりあえず棚にしまうこと"],
+                correct: 2,
+                explanation: "正解！整理とは「要るもの」と「要らないもの」を明確に分け、捨てることです。"
+            },
+            {
+                question: "「整頓」の最も重要な目的は？",
+                options: ["見た目を美しくするため", "上司に褒められるため", "必要なものを、誰でもすぐに取り出せるようにするため", "スペースを空けるため"],
+                correct: 2,
+                explanation: "その通り！「誰でも・すぐに」取り出せ、戻せる状態が「整頓」の理想です。"
+            }
+        ];
+
+        // --- View Controller ---
+        function showView(viewId) {
+            document.querySelectorAll('#app-container > div').forEach(div => div.classList.add('hidden'));
+            document.getElementById(`view-${viewId}`).classList.remove('hidden');
+        }
+
+        function showStory() { showView('story'); }
+
+        function startQuiz() {
+            state.quizIndex = 0;
+            state.score = 0;
+            renderQuiz();
+            showView('quiz');
+        }
+
+        function renderQuiz() {
+            const quiz = quizzes[state.quizIndex];
+            document.getElementById('quiz-number').innerText = `Question ${state.quizIndex + 1}/${quizzes.length}`;
+            document.getElementById('quiz-question').innerText = quiz.question;
+            document.getElementById('quiz-progress').style.width = `${((state.quizIndex + 1) / quizzes.length) * 100}%`;
+            const optionsContainer = document.getElementById('quiz-options');
+            optionsContainer.innerHTML = '';
+            quiz.options.forEach((opt, idx) => {
+                const btn = document.createElement('button');
+                btn.className = "w-full text-left p-4 border-2 border-gray-200 rounded-xl hover:border-red-500 hover:bg-red-50 transition font-medium";
+                btn.innerText = opt;
+                btn.onclick = () => checkAnswer(idx);
+                optionsContainer.appendChild(btn);
+            });
+            document.getElementById('quiz-explanation').classList.add('hidden');
+            document.getElementById('quiz-options').classList.remove('pointer-events-none');
+        }
+
+        function checkAnswer(idx) {
+            const quiz = quizzes[state.quizIndex];
+            const options = document.querySelectorAll('#quiz-options button');
+            options.forEach(btn => btn.classList.add('pointer-events-none'));
+            if (idx === quiz.correct) {
+                options[idx].classList.add('bg-green-100', 'border-green-500');
+                state.score++;
+                document.getElementById('explanation-text').innerHTML = `<b>【正解！】</b><br>${quiz.explanation}`;
+            } else {
+                options[idx].classList.add('bg-red-100', 'border-red-500');
+                options[quiz.correct].classList.add('bg-green-100', 'border-green-500');
+                document.getElementById('explanation-text').innerHTML = `<b>【惜しい！】</b><br>${quiz.explanation}`;
+            }
+            document.getElementById('quiz-score').innerText = `Score: ${state.score}`;
+            document.getElementById('quiz-explanation').classList.remove('hidden');
+        }
+
+        function nextStep() {
+            if (state.quizIndex < quizzes.length - 1) {
+                state.quizIndex++;
+                renderQuiz();
+            } else {
+                startMiniGame(false);
+            }
+        }
+
+        // --- Game Controller (Drag & Drop Logic) ---
+        function startMiniGame(isSecondRound) {
+            state.isSecondGame = isSecondRound;
+            state.targetNumber = 1;
+            document.getElementById('next-number').innerText = state.targetNumber;
+            showView('game');
+
+            if (!isSecondRound) {
+                document.getElementById('game-title').innerText = "STEP 1: 整理前の現場";
+                document.getElementById('game-instruction').innerText = "パネルが揺れ、ノイズ（文字）が混ざっています。1〜10を順に棚へドラッグしてください！";
+            } else {
+                document.getElementById('game-title').innerText = "STEP 2: 4S後の現場";
+                document.getElementById('game-instruction').innerText = "4Sで整理・整頓しました。もう一度、1〜10を棚へドラッグ！";
+            }
+
+            renderGameLayout(isSecondRound);
+            startTimer();
+        }
+
+        function startTimer() {
+            state.gameStartTime = Date.now();
+            if (state.gameTimerInterval) clearInterval(state.gameTimerInterval);
+            state.gameTimerInterval = setInterval(() => {
+                const elapsed = (Date.now() - state.gameStartTime) / 1000;
+                document.getElementById('game-timer').innerText = elapsed.toFixed(1);
+            }, 100);
+        }
+
+        function renderGameLayout(isOptimized) {
+            const dropZone = document.getElementById('drop-zone');
+            const sourceArea = document.getElementById('source-area');
+            dropZone.innerHTML = '';
+            sourceArea.innerHTML = '';
+
+            // 棚の生成 (1-10のスロット)
+            for (let i = 1; i <= 10; i++) {
+                const slot = document.createElement('div');
+                slot.id = `slot-${i}`;
+                slot.className = "drop-slot";
+                slot.innerText = isOptimized ? i : "?"; // 改善後はガイドが出る
+                dropZone.appendChild(slot);
+            }
+
+            // ドラッグパネルの生成
+            let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+            if (!isOptimized) {
+                items = [...items, 'A', 'B', 'C', 'X', 'Y', 'Z', '!', '?']; // ノイズ追加
+                items.sort(() => Math.random() - 0.5); // ランダム並び
+            }
+
+            items.forEach(val => {
+                const panel = document.createElement('div');
+                panel.className = "draggable-panel";
+                panel.innerText = val;
+                panel.dataset.value = val;
+                
+                if (!isOptimized) {
+                    panel.classList.add('shaking');
+                    panel.style.animationDelay = `${Math.random()}s`;
+                }
+
+                initDraggable(panel);
+                sourceArea.appendChild(panel);
+            });
+        }
+
+        function initDraggable(el) {
+            el.onpointerdown = (e) => {
+                state.draggingElement = el;
+                el.classList.add('dragging');
+                el.setPointerCapture(e.pointerId);
+                
+                const rect = el.getBoundingClientRect();
+                state.offsetX = e.clientX - rect.left;
+                state.offsetY = e.clientY - rect.top;
+                
+                el.style.position = 'fixed';
+                el.style.left = `${e.clientX - state.offsetX}px`;
+                el.style.top = `${e.clientY - state.offsetY}px`;
+            };
+
+            el.onpointermove = (e) => {
+                if (!state.draggingElement) return;
+                el.style.left = `${e.clientX - state.offsetX}px`;
+                el.style.top = `${e.clientY - state.offsetY}px`;
+            };
+
+            el.onpointerup = (e) => {
+                if (!state.draggingElement) return;
+                const val = parseInt(el.dataset.value);
+                const targetSlot = document.getElementById(`slot-${state.targetNumber}`);
+                const slotRect = targetSlot.getBoundingClientRect();
+
+                // 当たり判定 (中心点チェック)
+                const panelCenterX = e.clientX;
+                const panelCenterY = e.clientY;
+
+                if (val === state.targetNumber &&
+                    panelCenterX > slotRect.left && panelCenterX < slotRect.right &&
+                    panelCenterY > slotRect.top && panelCenterY < slotRect.bottom) {
+                    
+                    // 正解
+                    targetSlot.innerText = val;
+                    targetSlot.classList.add('filled');
+                    el.classList.add('correct-placed');
+                    state.targetNumber++;
+
+                    if (state.targetNumber > 10) {
+                        endGame();
+                    } else {
+                        document.getElementById('next-number').innerText = state.targetNumber;
+                    }
+                } else {
+                    // 不正解または枠外: 元の位置に戻す（スタイルをリセット）
+                    el.style.position = '';
+                    el.style.left = '';
+                    el.style.top = '';
+                }
+
+                el.classList.remove('dragging');
+                state.draggingElement = null;
+            };
+        }
+
+        function endGame() {
+            clearInterval(state.gameTimerInterval);
+            const finalTime = (Date.now() - state.gameStartTime) / 1000;
+
+            if (!state.isSecondGame) {
+                state.gameTime1 = finalTime;
+                const modal = document.createElement('div');
+                modal.className = "fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center p-6 z-50";
+                modal.innerHTML = `
+                    <div class="bg-white p-8 rounded-2xl max-w-sm text-center">
+                        <h4 class="text-2xl font-bold mb-4 text-red-600">${finalTime.toFixed(1)}秒</h4>
+                        <p class="mb-6">現場が乱れていると、探して運ぶだけでこれだけ時間がかかります。<br>次は「4S」で改善しましょう！</p>
+                        <button id="close-modal" class="w-full toyota-red text-white py-3 rounded-xl font-bold">4Sを適用して再挑戦</button>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                document.getElementById('close-modal').onclick = () => {
+                    modal.remove();
+                    startMiniGame(true);
+                };
+            } else {
+                state.gameTime2 = finalTime;
+                showResult();
+            }
+        }
+
+        function showResult() {
+            showView('result');
+            const improvement = ((state.gameTime1 - state.gameTime2) / state.gameTime1 * 100).toFixed(0);
+            let rank = "物流ルーキー級";
+            if (state.score === 3 && improvement > 40) rank = "物流マスター級";
+            else if (state.score >= 2) rank = "物流エキスパート級";
+
+            document.getElementById('result-rank').innerText = rank;
+            document.getElementById('result-summary').innerHTML = `
+                クイズ正解数: <b>${state.score} / 3</b><br>
+                作業効率UP: <span class="text-2xl font-bold text-red-600">${improvement}%</span><br>
+                <span class="text-xs">（${state.gameTime1.toFixed(1)}秒 → ${state.gameTime2.toFixed(1)}秒）</span><br><br>
+                「整理」で不要なものを除き、「整頓」で置き場を決めると、現場はここまで速くなります！
+            `;
+        }
+    </script>
+</body>
+</html>
